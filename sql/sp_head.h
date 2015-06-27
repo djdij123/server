@@ -182,6 +182,7 @@ public:
   uint m_flags;                 // Boolean attributes of a stored routine
 
   Create_field m_return_field_def; /**< This is used for FUNCTIONs only. */
+  List<Create_field> m_cols_list; /**< Used for TABLE FUNCTIONs only. */
 
   const char *m_tmp_query;	///< Temporary pointer to sub query string
   st_sp_chistics *m_chistics;
@@ -196,6 +197,7 @@ public:
   LEX_STRING m_defstr;
   LEX_STRING m_definer_user;
   LEX_STRING m_definer_host;
+  LEX_STRING m_table_alias; //< Store alias for table in table-valued function
 
   /**
     Is this routine being executed?
@@ -420,6 +422,7 @@ public:
   bool fill_field_definition(THD *thd, LEX *lex,
                              enum enum_field_types field_type,
                              Create_field *field_def);
+  bool fill_resultset_definition(THD *thd, List<Create_field> *create_list);
 
   void set_info(longlong created, longlong modified,
 		st_sp_chistics *chistics, ulonglong sql_mode);

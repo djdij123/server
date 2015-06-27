@@ -2366,6 +2366,50 @@ sp_head::fill_field_definition(THD *thd, LEX *lex,
 }
 
 
+/*
+  @brief
+  Fill the attribute types for the returning table from table-valued 
+  function in m_cols_list.
+  
+  @param  thd          Thread handle
+  @param  create_list  A list of attribute types.
+
+  @return
+    False  on success
+  @retval
+    TRUE   on error
+*/
+bool
+sp_head::fill_resultset_definition(THD *thd, List<Create_field> *create_list)
+{
+  List_iterator_fast<Create_field> it(*create_list);
+  Create_field *field;
+  while ((field= it++))
+  {
+    Create_field *new_field = field->clone(thd->mem_root);
+    switch (new_field->sql_type) {
+      case MYSQL_TYPE_DATE:
+      case MYSQL_TYPE_NEWDATE:
+      case MYSQL_TYPE_TIME:
+      case MYSQL_TYPE_DATETIME:
+      case MYSQL_TYPE_TIMESTAMP:
+        new_field->charset= &my_charset_bin;
+      default: break;
+    }
+    if (!new_field->charset)
+       new_field->charset= default_charset_info;
+    if (!new_field->charset)
+       new_field->charset= system_charset_info;
+    if (new_field->interval_list.elements)
+        new_field->interval= create_typelib(thd->mem_root, new_field, 
+                                            &new_field->interval_list);
+    sp_prepare_create_field(thd, new_field);
+    if (m_cols_list.push_back(new_field, thd->mem_root))
+        return TRUE;
+  }
+  return FALSE;
+}
+
 int
 sp_head::new_cont_backpatch(sp_instr_opt_meta *i)
 {

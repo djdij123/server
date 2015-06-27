@@ -45,7 +45,8 @@ enum stored_procedure_type
   TYPE_ENUM_FUNCTION=1,
   TYPE_ENUM_PROCEDURE=2,
   TYPE_ENUM_TRIGGER=3,
-  TYPE_ENUM_PROXY=4
+  TYPE_ENUM_PROXY=4,
+  TYPE_ENUM_TABLE=5
 };
 
 /* Tells what SP_DEFAULT_ACCESS should be mapped to */

@@ -1711,7 +1711,7 @@ bool my_yyoverflow(short **a, YYSTYPE **b, ulong *yystacksize);
 %type <string>
         text_string hex_or_bin_String opt_gconcat_separator
 
-%type <field_type> type_with_opt_collate int_type real_type field_type
+%type <field_type> type_with_opt_collate sf_type_with_opt_collate int_type real_type field_type
 
 %type <geom_type> spatial_type
 
@@ -6625,7 +6625,28 @@ type_with_opt_collate:
         }
         ;
 
-
+sf_type_with_opt_collate:
+          type_with_opt_collate
+          {
+            $$ = $1;
+          }
+        | TABLE_SYM ident '(' field_list ')'
+          {
+            LEX *lex= thd->lex;
+            sp_head *sp= lex->sphead;
+            sp->m_table_alias= $2;
+            // for table functions, we need to store the return types
+            sp->m_type= TYPE_ENUM_TABLE;
+            if (sp->fill_resultset_definition(thd, 
+                                              &Lex->alter_info.create_list))
+              MYSQL_YYABORT;
+            if (sp->m_cols_list.is_empty())
+            {
+              my_parse_error(ER(ER_SYNTAX_ERROR));
+              MYSQL_YYABORT;
+            }
+          }
+        ;
 now_or_signed_literal:
           NOW_SYM opt_default_time_precision
           {
@@ -16260,6 +16281,7 @@ sf_tail:
           sp_name /* $3 */
           '(' /* $4 */
           { /* $5 */
+            Lex->alter_info.reset();
             LEX *lex= Lex;
             Lex_input_stream *lip= YYLIP;
             const char* tmp_param_begin;
@@ -16292,11 +16314,15 @@ sf_tail:
             lex->init_last_field(&lex->sphead->m_return_field_def, NULL,
                                  thd->variables.collation_database);
           }
-          type_with_opt_collate /* $11 */
+          sf_type_with_opt_collate /* $11 */
           { /* $12 */
-            if (Lex->sphead->fill_field_definition(thd, Lex, $11,
-                                                   Lex->last_field))
-              MYSQL_YYABORT;
+            if (!(Lex->sphead->m_type== TYPE_ENUM_TABLE))
+            {
+                Lex->sphead->m_type = TYPE_ENUM_FUNCTION;
+                if (Lex->sphead->fill_field_definition(thd, Lex, $11,
+                                                       Lex->last_field))
+                  MYSQL_YYABORT;
+            }
           }
           sp_c_chistics /* $13 */
           { /* $14 */
@@ -16304,6 +16330,12 @@ sf_tail:
             Lex_input_stream *lip= YYLIP;
 
             lex->sphead->set_body_start(thd, lip->get_cpp_tok_start());
+            
+            if (Lex->sphead->m_type== TYPE_ENUM_TABLE) //to be removed later.
+            {
+              my_error(ER_NOT_SUPPORTED_YET, MYF(0), "Table functions");
+              MYSQL_YYABORT;
+            }
           }
           sp_proc_stmt /* $15 */
           {
@@ -16315,7 +16347,7 @@ sf_tail:
 
             lex->sql_command= SQLCOM_CREATE_SPFUNCTION;
             sp->set_stmt_end(thd);
-            if (!(sp->m_flags & sp_head::HAS_RETURN))
+            if (!(sp->m_flags & sp_head::HAS_RETURN) && !(Lex->sphead->m_type== TYPE_ENUM_TABLE))
             {
               my_error(ER_SP_NORETURN, MYF(0), sp->m_qname.str);
               MYSQL_YYABORT;
