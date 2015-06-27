@@ -3046,6 +3046,8 @@ public:
   /*
     TODO: move more attributes from the LEX structure here.
   */
+
+  int table_factor_part_type; //equals 2 for table-valued functions in queries
 };
 
 /**

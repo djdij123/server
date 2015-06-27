@@ -2872,3 +2872,7 @@ BEGIN
 INSERT INTO t1 SELECT id, name FROM t2 WHERE id = a;
 END|
 ERROR 42000: This version of MariaDB doesn't yet support 'Table functions'
+SELECT * FROM f1('xyz');
+ERROR 42000: This version of MariaDB doesn't yet support 'Queries using Table Functions'
+SELECT * FROM t1, f1('xyz',t1.a);
+ERROR 42000: You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near '' at line 1

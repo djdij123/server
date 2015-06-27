@@ -3855,3 +3855,8 @@ INSERT INTO t1 SELECT id, name FROM t2 WHERE id = a;
 END|
 
 DELIMITER ;|
+
+--error 1235
+SELECT * FROM f1('xyz');
+--error 1064
+SELECT * FROM t1, f1('xyz',t1.a);

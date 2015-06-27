@@ -1805,7 +1805,7 @@ bool my_yyoverflow(short **a, YYSTYPE **b, ulong *yystacksize);
         btree_or_rtree opt_key_algorithm_clause opt_USING_key_algorithm
 
 %type <string_list>
-        using_list opt_use_partition use_partition
+        using_list opt_use_partition use_partition table_factor_part2
 
 %type <key_part>
         key_part
@@ -10764,7 +10764,24 @@ use_partition:
             $$= $3;
           }
         ;
-  
+
+table_factor_part2:
+          opt_use_partition
+          {
+            LEX *lex= Lex;
+            SELECT_LEX *sel= lex->current_select;
+            $$= $1;
+            Yacc_state *state= & thd->m_parser_state->m_yacc;
+            state->table_factor_part_type= 1;
+          }
+        | '(' table_function_args ')'
+           {
+             LEX *lex= Lex;
+             SELECT_LEX *sel= lex->current_select;
+             Yacc_state *state= & thd->m_parser_state->m_yacc;
+             state->table_factor_part_type= 2;
+           }
+        ;
 /* 
    This is a flattening of the rules <table factor> and <table primary>
    in the SQL:2003 standard, since we don't have <sample clause>
@@ -10778,16 +10795,45 @@ table_factor:
             SELECT_LEX *sel= Select;
             sel->table_join_options= 0;
           }
-          table_ident opt_use_partition opt_table_alias opt_key_definition
+          table_ident table_factor_part2 opt_table_alias opt_key_definition
           {
-            if (!($$= Select->add_table_to_list(thd, $2, $4,
-                                                Select->get_table_join_options(),
-                                                YYPS->m_lock_type,
-                                                YYPS->m_mdl_type,
-                                                Select->pop_index_hints(),
-                                                $3)))
-              MYSQL_YYABORT;
-            Select->add_joined_table($$);
+            LEX *lex=Lex;
+            SELECT_LEX *sel= lex->current_select;
+            Yacc_state *state= & thd->m_parser_state->m_yacc;
+            if (state->table_factor_part_type== 2)
+            {
+              mysql_init_select(lex);
+              List_iterator_fast<Item> it(lex->value_list);
+              Item *item;
+              while ((item = it++))
+              {
+                 if(!(item->basic_const_item()))
+                 {
+                   my_parse_error(ER(ER_SYNTAX_ERROR));
+                   MYSQL_YYABORT;
+                 }
+              }
+              if (!($$= sel->add_table_to_list(thd, $2, $4, 0, TL_READ)))
+                MYSQL_YYABORT;
+              sel->add_joined_table($$);
+              lex->pop_context();
+
+              my_error(ER_NOT_SUPPORTED_YET, MYF(0),
+                       "Queries using Table Functions"); //to be removed later
+            }
+            else
+            {
+              LEX *lex=Lex;
+              SELECT_LEX *sel= lex->current_select;
+              if (!($$= Select->add_table_to_list(thd, $2, $4,
+                                                  Select->get_table_join_options(),
+                                                  YYPS->m_lock_type,
+                                                  YYPS->m_mdl_type,
+                                                  Select->pop_index_hints(),
+                                                  $3)))
+                MYSQL_YYABORT;
+              Select->add_joined_table($$);
+            }
           }
         | select_derived_init get_select_lex select_derived2
           {
@@ -11016,6 +11062,22 @@ select_derived2:
             Select->parsing_place= NO_MATTER;
           }
           opt_select_from
+        ;
+
+table_function_args:
+          /* empty */
+        | table_function_arg_items
+        ;
+
+table_function_arg_items:
+          table_function_arg_items ',' expr
+          {
+            Lex->value_list.push_back($3);
+          }
+        | expr
+          {
+            Lex->value_list.push_back($1);
+          }
         ;
 
 get_select_lex:
