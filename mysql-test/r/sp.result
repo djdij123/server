@@ -7937,3 +7937,35 @@ return 1;
 end |
 ERROR 0A000: Not allowed to return a result set from a function
 drop table t1,t2;
+# Tests for Table functions
+CREATE FUNCTION f1(a INT, b VARCHAR(11))
+RETURNS TABLE t1(id INT, name VARCHAR(11))
+BEGIN
+INSERT INTO t1 SELECT id, name FROM t2 WHERE id = a;
+END|
+SELECT * FROM mysql.proc WHERE db = database() and name = 'f1';
+db	test
+name	f1
+type	FUNCTION
+specific_name	f1
+language	SQL
+sql_data_access	CONTAINS_SQL
+is_deterministic	NO
+security_type	DEFINER
+param_list	a INT, b VARCHAR(11)
+returns	TABLE t1(id int(11), name varchar(11))
+body	BEGIN
+INSERT INTO t1 SELECT id, name FROM t2 WHERE id = a;
+END
+definer	root@localhost
+created	2015-07-03 16:36:36
+modified	2015-07-03 16:36:36
+sql_mode	
+comment	
+character_set_client	latin1
+collation_connection	latin1_swedish_ci
+db_collation	latin1_swedish_ci
+body_utf8	BEGIN
+INSERT INTO t1 SELECT id, name FROM t2 WHERE id = a;
+END
+DROP FUNCTION f1;

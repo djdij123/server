@@ -925,21 +925,68 @@ sp_returns_type(THD *thd, String &result, sp_head *sp)
   bzero((char*) &share, sizeof(share));
   table.in_use= thd;
   table.s = &share;
-  field= sp->create_result_field(0, 0, &table);
-  field->sql_type(result);
-
-  if (field->has_charset())
+  if (sp->m_type == TYPE_ENUM_FUNCTION)
   {
-    result.append(STRING_WITH_LEN(" CHARSET "));
-    result.append(field->charset()->csname);
-    if (!(field->charset()->state & MY_CS_PRIMARY))
-    {
-      result.append(STRING_WITH_LEN(" COLLATE "));
-      result.append(field->charset()->name);
-    }
-  }
+    field= sp->create_result_field(0, 0, &table);
+    field->sql_type(result);
 
-  delete field;
+    if (field->has_charset())
+    {
+      result.append(STRING_WITH_LEN(" CHARSET "));
+      result.append(field->charset()->csname);
+      if (!(field->charset()->state & MY_CS_PRIMARY))
+      {
+        result.append(STRING_WITH_LEN(" COLLATE "));
+        result.append(field->charset()->name);
+      }
+    }
+    delete field;
+  }
+  else if (sp->m_type == TYPE_ENUM_TABLE)
+  {
+    List_iterator_fast<Create_field> it(sp->m_cols_list);
+    Create_field *cols_field;
+    cols_field= it++;
+    result.append(STRING_WITH_LEN("TABLE "));
+    result.append(sp->m_table_alias.str);
+    result.append(STRING_WITH_LEN("("));
+    while (cols_field)
+    {
+      uint unused1= 0;
+      sp_prepare_create_field(thd, cols_field);
+      prepare_create_field(cols_field, &unused1, HA_CAN_GEOMETRY);
+      uint field_length;
+      Field *field;
+      String tmp_result(512);
+      field_length= cols_field->length;
+      cols_field->flags= 0;
+      field= make_field(table.s,                     /* TABLE_SHARE ptr */
+                          (uchar*) 0,                   /* field ptr */
+                          field_length,                 /* field [max] length */
+                          (uchar*) "",                  /* null ptr */
+                          0,                            /* null bit */
+                          cols_field->pack_flag,
+                          cols_field->sql_type,
+                          cols_field->charset,
+                          cols_field->geom_type, cols_field->srid,
+                          Field::NONE,                  /* unreg check */
+                          cols_field->interval,
+                          cols_field->field_name);
+      field->vcol_info= cols_field->vcol_info;
+      field->stored_in_db= cols_field->stored_in_db;
+      if (field)
+        field->init(&table);
+      result.append(cols_field->field_name);
+      result.append(STRING_WITH_LEN(" "));
+      field->sql_type(tmp_result);
+      result.append(tmp_result);
+      cols_field= it++;
+      if(cols_field)
+        result.append(STRING_WITH_LEN(", "));
+      delete field;
+    }
+    result.append(STRING_WITH_LEN(")"));
+  }
 }
 
 
@@ -1020,7 +1067,8 @@ sp_create_routine(THD *thd, stored_procedure_type type, sp_head *sp)
   char definer_buf[USER_HOST_BUFF_SIZE];
   LEX_STRING definer;
   ulonglong saved_mode= thd->variables.sql_mode;
-  MDL_key::enum_mdl_namespace mdl_type= type == TYPE_ENUM_FUNCTION ?
+  MDL_key::enum_mdl_namespace mdl_type= type == (type == TYPE_ENUM_FUNCTION ||
+                                                 type == TYPE_ENUM_TABLE)  ?
                                         MDL_key::FUNCTION : MDL_key::PROCEDURE;
 
   CHARSET_INFO *db_cs= get_default_db_collation(thd, sp->m_db.str);
@@ -1036,7 +1084,8 @@ sp_create_routine(THD *thd, stored_procedure_type type, sp_head *sp)
   retstr.set_charset(system_charset_info);
 
   DBUG_ASSERT(type == TYPE_ENUM_PROCEDURE ||
-              type == TYPE_ENUM_FUNCTION);
+              type == TYPE_ENUM_FUNCTION ||
+              type == TYPE_ENUM_TABLE);
 
   /* Grab an exclusive MDL lock. */
   if (lock_object_name(thd, mdl_type, sp->m_db.str, sp->m_name.str))
@@ -1053,25 +1102,30 @@ sp_create_routine(THD *thd, stored_procedure_type type, sp_head *sp)
   else
   {
     /* Checking if the routine already exists */
-    if (db_find_routine_aux(thd, type, lex->spname, table) == SP_OK)
+    if (db_find_routine_aux(thd, (type == TYPE_ENUM_TABLE ?
+                                  TYPE_ENUM_FUNCTION : type), 
+                            lex->spname, table) == SP_OK)
     {
       if (lex->create_info.or_replace())
       {
-        if ((ret= sp_drop_routine_internal(thd, type, lex->spname, table)))
+        if ((ret= sp_drop_routine_internal(thd, (type == TYPE_ENUM_TABLE ?
+                                                 TYPE_ENUM_FUNCTION : type), 
+                                           lex->spname, table)))
           goto done;
       }
       else if (lex->create_info.if_not_exists())
       {
         push_warning_printf(thd, Sql_condition::WARN_LEVEL_NOTE,
                               ER_SP_ALREADY_EXISTS, ER(ER_SP_ALREADY_EXISTS),
-                              type == TYPE_ENUM_FUNCTION ?
+                              (type == TYPE_ENUM_FUNCTION || 
+                              type == TYPE_ENUM_TABLE) ?
                                "FUNCTION" : "PROCEDURE",
                               lex->spname->m_name.str);
 
         ret= SP_OK;
 
         // Setting retstr as it is used for logging.
-        if (sp->m_type == TYPE_ENUM_FUNCTION)
+        if (sp->m_type == TYPE_ENUM_FUNCTION || sp->m_type == TYPE_ENUM_TABLE)
           sp_returns_type(thd, retstr, sp);
         goto log;
       }
@@ -1117,7 +1171,8 @@ sp_create_routine(THD *thd, stored_procedure_type type, sp_head *sp)
 
     store_failed= store_failed ||
       table->field[MYSQL_PROC_MYSQL_TYPE]->
-        store((longlong)type, TRUE);
+        store((longlong)(type == TYPE_ENUM_TABLE ?
+                         TYPE_ENUM_FUNCTION : type), TRUE);
 
     store_failed= store_failed ||
       table->field[MYSQL_PROC_FIELD_SPECIFIC_NAME]->
@@ -1145,7 +1200,7 @@ sp_create_routine(THD *thd, stored_procedure_type type, sp_head *sp)
       table->field[MYSQL_PROC_FIELD_PARAM_LIST]->
         store(sp->m_params.str, sp->m_params.length, system_charset_info);
 
-    if (sp->m_type == TYPE_ENUM_FUNCTION)
+    if (sp->m_type == TYPE_ENUM_FUNCTION || sp->m_type == TYPE_ENUM_TABLE)
     {
       sp_returns_type(thd, retstr, sp);
 
@@ -1153,7 +1208,6 @@ sp_create_routine(THD *thd, stored_procedure_type type, sp_head *sp)
         table->field[MYSQL_PROC_FIELD_RETURNS]->
           store(retstr.ptr(), retstr.length(), system_charset_info);
     }
-
     store_failed= store_failed ||
       table->field[MYSQL_PROC_FIELD_BODY]->
         store(sp->m_body.str, sp->m_body.length, system_charset_info);
@@ -1177,7 +1231,7 @@ sp_create_routine(THD *thd, stored_procedure_type type, sp_head *sp)
                 system_charset_info);
     }
 
-    if ((sp->m_type == TYPE_ENUM_FUNCTION) &&
+    if ((sp->m_type == TYPE_ENUM_FUNCTION || sp->m_type == TYPE_ENUM_TABLE) &&
         !trust_function_creators && mysql_bin_log.is_open())
     {
       if (!sp->m_chistics->detistic)
@@ -1256,7 +1310,8 @@ log:
     log_query.set_charset(system_charset_info);
 
     if (!show_create_sp(thd, &log_query,
-                       sp->m_type,
+                       (sp->m_type == TYPE_ENUM_TABLE ?
+                       TYPE_ENUM_FUNCTION : sp->m_type),
                        (sp->m_explicit_name ? sp->m_db.str : NULL), 
                        (sp->m_explicit_name ? sp->m_db.length : 0), 
                        sp->m_name.str, sp->m_name.length,

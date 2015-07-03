@@ -16392,12 +16392,6 @@ sf_tail:
             Lex_input_stream *lip= YYLIP;
 
             lex->sphead->set_body_start(thd, lip->get_cpp_tok_start());
-            
-            if (Lex->sphead->m_type== TYPE_ENUM_TABLE) //to be removed later.
-            {
-              my_error(ER_NOT_SUPPORTED_YET, MYF(0), "Table functions");
-              MYSQL_YYABORT;
-            }
           }
           sp_proc_stmt /* $15 */
           {

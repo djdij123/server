@@ -9385,3 +9385,19 @@ end |
 --delimiter ;
 
 drop table t1,t2;
+
+--echo # Tests for Table functions
+delimiter |;
+
+CREATE FUNCTION f1(a INT, b VARCHAR(11))
+RETURNS TABLE t1(id INT, name VARCHAR(11))
+BEGIN
+INSERT INTO t1 SELECT id, name FROM t2 WHERE id = a;
+END|
+
+DELIMITER ;|
+
+--vertical_results
+SELECT * FROM mysql.proc WHERE db = database() and name = 'f1';
+
+DROP FUNCTION f1;
